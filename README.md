@@ -1,2 +1,4 @@
 # relayd
-relay a tcp socket to another IP address and/or port
+Quick hack to relay a tcp socket to another IP address and port.
+
+

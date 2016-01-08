@@ -5,3 +5,7 @@ relayd: relayd.c
 
 clean:
 	rm -f *.o *.a relayd
+
+install: all
+	install relayd /usr/local/sbin
+

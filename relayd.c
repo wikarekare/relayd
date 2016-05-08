@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #define max(x,y) (x>y ? x:y)
+#define IP_ADDRESS "192.168.249.103"
 
 int Local_port = 80; //Listen on this port.
 char *Host = "10.0.1.102"; //Relay all traffic to this host
@@ -76,7 +77,7 @@ int  on = 1;
 	    printf("setsockopt failed: ignoring this\n");
 
     record.sin_family = AF_INET;
-    record.sin_addr.s_addr = INADDR_ANY;
+    record.sin_addr.s_addr = inet_addr(IP_ADDRESS); //INADDR_ANY;
     record.sin_port = htons(port_number);
     if(bind(s, (struct sockaddr *)&record, (socklen_t) sizeof(record)) == -1)
     {   printf("bind failed %d\n",errno);

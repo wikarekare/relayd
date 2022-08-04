@@ -11,15 +11,17 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <limits.h>     /* definition of OPEN_MAX */
+#include <stdio.h>
 #include <sys/ioctl.h>
-#include <unistd.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define max(x,y) (x>y ? x:y)
-#define IP_ADDRESS "192.168.249.103"
+#define IP_ADDRESS "0.0.0.0" // INADDR_ANY
 
 int Local_port = 80; //Listen on this port.
-char *Host = "10.0.1.102"; //Relay all traffic to this host
+char *Host = "www.wikarekare.org"; //Relay all traffic to this host
 int Port = 80; //and to this remote port
 
 int run = 1;
@@ -39,7 +41,7 @@ int fd;
 #ifndef POSIX
 #ifdef TIOCNOTTY
 	if((fd = open( "/dev/tty", O_RDWR, 0)) >= 0)
-	{	
+	{
 		(void)ioctl(fd, TIOCNOTTY, (caddr_t)0);
 		close(fd);
 	}
@@ -56,11 +58,11 @@ int fd;
 	else
 		(void)open("/dev/null",O_RDWR,0);
 	(void)dup2(0,1);
-	(void)dup2(0,2); 
+	(void)dup2(0,2);
 }
 
 /*Prepare to listen on given port*/
-int open_listener(short port_number)
+int open_listener(short port_number, in_addr_t interface_ip)
 {
 struct sockaddr_in record;
 int s;
@@ -72,12 +74,12 @@ int  on = 1;
     }
     else
     	printf("Socket opened %d\n", s);
-    	
+
     if(setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*)&on, sizeof(int)) == -1)
 	    printf("setsockopt failed: ignoring this\n");
 
     record.sin_family = AF_INET;
-    record.sin_addr.s_addr = inet_addr(IP_ADDRESS); //INADDR_ANY;
+    record.sin_addr.s_addr = interface_ip;
     record.sin_port = htons(port_number);
     if(bind(s, (struct sockaddr *)&record, (socklen_t) sizeof(record)) == -1)
     {   printf("bind failed %d\n",errno);
@@ -119,7 +121,7 @@ int c;
 	      perror("connect");
 	      exit(0);
     }
-	
+
    return s;
 }
 
@@ -128,7 +130,7 @@ int relay(int in_sd, int out_sd)
 { // actually, in and out or totally interchangable.
 char out_buffer[2048]; //This is bigger than an ethernet packet, so shouldn't fragment packets
 char in_buffer[2048]; //This is bigger than an ethernet packet, so shouldn't fragment packets
-int in_buffer_bytes = 0; 
+int in_buffer_bytes = 0;
 int out_buffer_bytes = 0;
 fd_set fdsRead;
 fd_set fdsWrite;
@@ -140,16 +142,16 @@ int out_eof = 0;
 
   tv.tv_sec = 60;
   tv.tv_usec = 0;
-  
+
   for(;;)
   {
     if((in_eof || out_eof) && out_buffer_bytes == 0 && in_buffer_bytes == 0)
       return 0;
-      
+
     //Start fresh, by clearing all FDs
-    FD_ZERO(&fdsRead); 
+    FD_ZERO(&fdsRead);
     FD_ZERO(&fdsWrite);
-    
+
     if(in_buffer_bytes <= 0)
     {
       if(in_eof == 0)
@@ -157,16 +159,16 @@ int out_eof = 0;
     }
     else
       FD_SET(out_sd , &fdsWrite ); //We have data in our buffer, so check write stream.
-      
+
     if(out_buffer_bytes <= 0)
     { if(out_eof == 0)
         FD_SET(out_sd , &fdsRead ); //We have no data to write, so check read stream.
     }
     else
       FD_SET(in_sd , &fdsWrite ); //We have data in our buffer, so check write stream.
-    
-      
-    if( ( nSelect = select( nfds, &fdsRead, &fdsWrite, NULL, &tv) ) < 0 ) 
+
+
+    if( ( nSelect = select( nfds, &fdsRead, &fdsWrite, NULL, &tv) ) < 0 )
     {
       if( errno == EINTR )
         continue; //An interrupt is non-fatal.
@@ -177,7 +179,7 @@ int out_eof = 0;
     {
       return -1;//timed out.
     }
-    
+
     //Data in the system inward streams read buffer.
     if( FD_ISSET( in_sd, &fdsRead ) )
     {
@@ -190,10 +192,10 @@ int out_eof = 0;
       }
       if(in_buffer_bytes == 0)
         in_eof = 1;
-        
+
       //printf("Read %d from inbuffer\n", in_buffer_bytes);
     }
-    
+
     //Data in the system outward streams read buffer.
     if( FD_ISSET( out_sd, &fdsRead ) )
     {
@@ -208,43 +210,43 @@ int out_eof = 0;
         out_eof = 1;
       //printf("Read %d from outbuffer\n", out_buffer_bytes);
     }
-    
+
     //Inward Write stream available, and we have something to write.
     if( FD_ISSET( in_sd, &fdsWrite)  && out_buffer_bytes > 0)
     {
       int bytes_written;
-      while( (bytes_written = write(in_sd, out_buffer, out_buffer_bytes) ) == -1) 
+      while( (bytes_written = write(in_sd, out_buffer, out_buffer_bytes) ) == -1)
       { if(errno == EINTR)
           continue;
         else
           return errno;
-      }        
+      }
       out_buffer_bytes -= bytes_written;
       //printf("Wrote %d from outbuffer, to in_sd\n", bytes_written);
     }
-    
+
     //Outward Write stream available, and we have something to write.
     if( FD_ISSET( out_sd, &fdsWrite) && in_buffer_bytes > 0)
     {
       int bytes_written;
-      while( (bytes_written = write(out_sd, in_buffer, in_buffer_bytes) ) == -1) 
+      while( (bytes_written = write(out_sd, in_buffer, in_buffer_bytes) ) == -1)
       { if(errno == EINTR)
           continue;
         else
           return errno;
-      }        
+      }
       in_buffer_bytes -= bytes_written;
       //printf("Wrote %d from inbuffer, to out_sd\n", bytes_written);
     }
   }
-  
+
 }
 
 /*connect to remote host and relay packets until incoming connection closes*/
 void process_connection(int sd)
 {
   int c_sd;
-  
+
   if((c_sd = open_remote_connection(Host, Port)) == -1)
   {
     exit(-1);
@@ -285,13 +287,13 @@ socklen_t addr_len;
 	signal(SIGPIPE, SIG_IGN); //ignore broken connections
 	signal(SIGCHLD, catch_children); //clean up after the kids.
 	signal(SIGTERM, catch_term); //catch a terminate signal, so we can close the socket properly.
-	
-	
-  listen_sd = open_listener(Local_port);
+
+
+  listen_sd = open_listener(Local_port, inet_addr(IP_ADDRESS));
   for(;run == 1;)
   {
     addr_len = sizeof(address);
-		
+
    	if((sd = accept(listen_sd, (struct sockaddr *)&address, &addr_len)) == -1)
    	{   	//perror("accept failed");
 		if(run == 0) exit(0);
@@ -303,7 +305,7 @@ socklen_t addr_len;
 			close(sd);
 			if(run == 0) exit(0);
 			continue;
-		} 
+		}
 		else if(result == 0)
 		{ //Child, so we are now in another process.
 			close(listen_sd); /*close the listening socket in the child process*/
@@ -313,12 +315,12 @@ socklen_t addr_len;
       			process_connection(sd);
       			shutdown(sd,0);
       			close(sd);
-			exit(0);	
+			exit(0);
 		}
 		else //Parent. so close the accept discriptor, and go back to accepting
 			close(sd);
   }
-    
+
   shutdown(listen_sd,0);
   close(listen_sd);
 }
